@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Search Widget</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+    <script src="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js" defer></script>
+</head>
+<body x-data="widgetApp()">
+    <section class="section">
+        <div class="container">
+            <div class="columns is-centered">
+                <div class="column is-8">
+                    <h1 class="title has-text-centered has-text-primary">Google Search Widget</h1>
+                    
+                    <!-- Configuration Form -->
+                    <div class="box" x-show="!configId">
+                        <h3 class="subtitle">Widget Configuration</h3>
+                        <form @submit.prevent="setConfigId()">
+                            <div class="field">
+                                <label class="label">Config ID</label>
+                                <div class="control">
+                                    <input 
+                                        class="input" 
+                                        type="text" 
+                                        x-model="inputConfigId"
+                                        placeholder="Enter your widget config ID..."
+                                        required
+                                    />
+                                </div>
+                                <p class="help">Enter the configId for your Google search widget</p>
+                            </div>
+                            <div class="field">
+                                <div class="control">
+                                    <button class="button is-primary is-fullwidth" type="submit">
+                                        Configure Widget
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Widget Active State -->
+                    <div x-show="configId">
+                        <!-- Current Config Display -->
+                        <div class="notification is-success is-light">
+                            <div class="level">
+                                <div class="level-left">
+                                    <div class="level-item">
+                                        <span class="tag is-success">Config ID: <span x-text="configId"></span></span>
+                                    </div>
+                                </div>
+                                <div class="level-right">
+                                    <div class="level-item">
+                                        <button class="button is-small" @click="clearConfig()">Change Config</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Search Input -->
+                        <div class="box">
+                            <div class="field">
+                                <label class="label">Search</label>
+                                <div class="control">
+                                    <input 
+                                        class="input is-large" 
+                                        placeholder="Search here" 
+                                        id="searchWidgetTrigger" 
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Search widget element -->
+                        <gen-search-widget
+                          :configId="configId"
+                          triggerId="searchWidgetTrigger">
+                        </gen-search-widget>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Widget JavaScript bundle -->
+    <script src="https://cloud.google.com/ai/gen-app-builder/client?hl=en_US"></script>
+
+    <script>
+        function widgetApp() {
+            return {
+                configId: '',
+                inputConfigId: '',
+
+                init() {
+                    this.loadConfigFromUrl();
+                },
+
+                loadConfigFromUrl() {
+                    const hash = window.location.hash.substring(1);
+                    if (hash) {
+                        this.configId = decodeURIComponent(hash);
+                    }
+                },
+
+                setConfigId() {
+                    if (this.inputConfigId.trim()) {
+                        this.configId = this.inputConfigId.trim();
+                        window.location.hash = encodeURIComponent(this.configId);
+                        this.inputConfigId = '';
+                        
+                        // Reload the widget with new config
+                        this.$nextTick(() => {
+                            this.updateWidget();
+                        });
+                    }
+                },
+
+                clearConfig() {
+                    this.configId = '';
+                    window.location.hash = '';
+                },
+
+                updateWidget() {
+                    // Remove existing widget and recreate it
+                    const existingWidget = document.querySelector('gen-search-widget');
+                    if (existingWidget) {
+                        existingWidget.setAttribute('configId', this.configId);
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>

@@ -15,36 +15,35 @@
                     <h1 class="title has-text-centered has-text-primary">Google Cloud Search</h1>
                     
                     <!-- Configuration -->
-                    <div class="box" x-show="!configValid && showConfig">
-                        <h3 class="subtitle">Configuration</h3>
-                        <div class="field">
-                            <input 
-                                class="input" 
-                                type="text" 
-                                x-model="config.projectId"
-                                placeholder="Google Cloud Project ID"
-                            >
+                    <div class="box" x-show="!configValid">
+                        <h3 class="subtitle">Setup</h3>
+                        <div class="content">
+                            <p>1. Open <a href="https://shell.cloud.google.com" target="_blank">Google Cloud Shell</a></p>
+                            <p>2. Generate your search API command and copy it here:</p>
                         </div>
                         <div class="field">
-                            <input 
-                                class="input" 
-                                type="text" 
-                                x-model="config.dataStoreId"
-                                placeholder="Data Store ID"
-                            >
+                            <textarea 
+                                class="textarea" 
+                                x-model="curlCommand"
+                                placeholder="Paste your curl command from Google Cloud Shell here..."
+                                rows="6"
+                            ></textarea>
                         </div>
                         <div class="field">
-                            <input 
-                                class="input" 
-                                type="text" 
-                                x-model="config.token"
-                                placeholder="Access Token (from gcloud)"
-                            >
+                            <button class="button is-primary is-large is-fullwidth" @click="parseCurlCommand()" :disabled="!curlCommand.trim()">
+                                Configure from Cloud Shell
+                            </button>
                         </div>
-                        <div class="field">
-                            <p class="help">
-                                TIP: Use Google Cloud Shell to get your access token: <code>gcloud auth print-access-token</code>
-                            </p>
+                        <div class="notification is-info" x-show="!curlCommand.trim()">
+                            <strong>Example curl command:</strong>
+                            <pre class="mt-2">curl -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+-H "Content-Type: application/json" \
+"https://discoveryengine.googleapis.com/v1/projects/YOUR_PROJECT/locations/global/collections/default_collection/engines/YOUR_ENGINE/servingConfigs/default_config:search" \
+-d '{"query":"test"}'</pre>
+                        </div>
+                        <div class="notification is-danger" x-show="parseError">
+                            <strong>Parse Error:</strong>
+                            <span x-text="parseError"></span>
                         </div>
                     </div>
 
@@ -53,8 +52,7 @@
                         <div class="level">
                             <div class="level-left">
                                 <div class="level-item">
-                                    <span class="tag is-success">Project: <span x-text="config.projectId"></span></span>
-                                    <span class="tag is-info ml-2">Data Store: <span x-text="config.dataStoreId"></span></span>
+                                    <span class="tag is-success">API: <span x-text="config.apiUrl.split('/').slice(-3).join('/')"></span></span>
                                     <span class="tag ml-2" :class="tokenExpired ? 'is-danger' : 'is-warning'">
                                         Token: <span x-text="tokenStatus"></span>
                                     </span>
@@ -70,12 +68,7 @@
                         </div>
                     </div>
 
-                    <!-- Setup Button (when no config) -->
-                    <div class="has-text-centered mb-5" x-show="!configValid && !showConfig">
-                        <button class="button is-primary is-large" @click="showConfig = true">
-                            Setup Configuration
-                        </button>
-                    </div>
+
                     
                     <!-- Search Form -->
                     <form @submit.prevent="performSearch()">
@@ -112,6 +105,12 @@
                         About <strong x-text="results.totalSize"></strong> results
                     </div>
 
+                    <!-- Summary -->
+                    <div class="box has-background-info-light" x-show="results.summary">
+                        <h4 class="title is-6">Summary</h4>
+                        <p class="content" x-text="results.summary"></p>
+                    </div>
+
                     <!-- Search Results -->
                     <div class="mt-5">
                         <template x-for="result in results.items" :key="result.id">
@@ -138,10 +137,7 @@
         function searchApp() {
             return {
                 config: {
-                    projectId: '',
-                    dataStoreId: '',
-                    location: 'global',
-                    servingConfig: 'default_config',
+                    apiUrl: '',
                     token: ''
                 },
                 tokenExpiry: null,
@@ -150,12 +146,14 @@
                 error: '',
                 results: {
                     totalSize: null,
-                    items: []
+                    items: [],
+                    summary: null
                 },
-                showConfig: false,
+                curlCommand: '',
+                parseError: '',
 
                 get configValid() {
-                    return this.config.projectId.trim() && this.config.dataStoreId.trim() && this.config.token.trim();
+                    return this.config.apiUrl.trim() && this.config.token.trim();
                 },
 
                 get tokenExpired() {
@@ -178,10 +176,7 @@
                     
                     // Watch config changes and update both localStorage and URL
                     this.$watch('config', (newConfig) => {
-                        localStorage.setItem('projectId', newConfig.projectId);
-                        localStorage.setItem('dataStoreId', newConfig.dataStoreId);
-                        localStorage.setItem('location', newConfig.location);
-                        localStorage.setItem('servingConfig', newConfig.servingConfig);
+                        localStorage.setItem('apiUrl', newConfig.apiUrl);
                         localStorage.setItem('token', newConfig.token);
                         this.updateUrlHash();
                     }, { deep: true });
@@ -191,10 +186,7 @@
                         this.$nextTick(); // Trigger reactivity update
                     }, 60000);
 
-                    // Show config form if no valid config found
-                    if (!this.configValid) {
-                        this.showConfig = true;
-                    }
+
                 },
 
                 loadConfigFromUrl() {
@@ -202,58 +194,24 @@
                     const hash = window.location.hash.substring(1);
                     if (hash) {
                         try {
-                            // Try JSON format first (new format)
                             const decoded = decodeURIComponent(hash);
                             const jsonConfig = JSON.parse(decoded);
-                            if (jsonConfig.projectId && jsonConfig.dataStoreId && jsonConfig.token) {
+                            if (jsonConfig.apiUrl && jsonConfig.token) {
                                 this.config = {
-                                    projectId: jsonConfig.projectId,
-                                    dataStoreId: jsonConfig.dataStoreId,
-                                    location: jsonConfig.location || 'global',
-                                    servingConfig: jsonConfig.servingConfig || 'default_config',
+                                    apiUrl: jsonConfig.apiUrl,
                                     token: jsonConfig.token
                                 };
-                                // Set token expiry to 1 hour from now
                                 this.tokenExpiry = Date.now() + (60 * 60 * 1000);
                                 return;
                             }
                         } catch (e) {
-                            // Fall back to URLSearchParams format (legacy)
-                            try {
-                                const params = new URLSearchParams(hash);
-                                const urlConfig = {
-                                    projectId: params.get('project') || '',
-                                    dataStoreId: params.get('datastore') || params.get('app') || '',
-                                    location: params.get('location') || 'global',
-                                    servingConfig: params.get('servingConfig') || 'default_config',
-                                    token: params.get('token') || ''
-                                };
-                                
-                                // Parse token expiry if present
-                                const expiry = params.get('expiry');
-                                if (expiry) {
-                                    this.tokenExpiry = parseInt(expiry);
-                                } else if (urlConfig.token) {
-                                    this.tokenExpiry = Date.now() + (60 * 60 * 1000);
-                                }
-                                
-                                // Use URL config if all fields present
-                                if (urlConfig.projectId && urlConfig.dataStoreId && urlConfig.token) {
-                                    this.config = urlConfig;
-                                    return;
-                                }
-                            } catch (e2) {
-                                console.warn('Failed to parse URL config:', e2);
-                            }
+                            console.warn('Failed to parse URL config:', e);
                         }
                     }
 
                     // Fallback to localStorage
                     this.config = {
-                        projectId: localStorage.getItem('projectId') || '',
-                        dataStoreId: localStorage.getItem('dataStoreId') || localStorage.getItem('appId') || '',
-                        location: localStorage.getItem('location') || 'global',
-                        servingConfig: localStorage.getItem('servingConfig') || 'default_config',
+                        apiUrl: localStorage.getItem('apiUrl') || '',
                         token: localStorage.getItem('token') || ''
                     };
                     
@@ -266,27 +224,67 @@
 
                 updateUrlHash() {
                     if (this.configValid) {
-                        // Use JSON format for cleaner URLs
                         const configData = {
-                            projectId: this.config.projectId,
-                            dataStoreId: this.config.dataStoreId,
-                            location: this.config.location,
-                            servingConfig: this.config.servingConfig,
+                            apiUrl: this.config.apiUrl,
                             token: this.config.token
                         };
                         const encoded = encodeURIComponent(JSON.stringify(configData));
                         window.location.hash = encoded;
                         
-                        // Save expiry to localStorage too
                         if (this.tokenExpiry) {
                             localStorage.setItem('tokenExpiry', this.tokenExpiry.toString());
                         }
                     }
                 },
 
+                parseCurlCommand() {
+                    this.parseError = '';
+                    
+                    try {
+                        const cmd = this.curlCommand.trim();
+                        
+                        // Extract URL from curl command
+                        const urlMatch = cmd.match(/"(https:\/\/discoveryengine\.googleapis\.com\/[^"]+)"/);
+                        if (!urlMatch) {
+                            throw new Error('Could not find Discovery Engine API URL');
+                        }
+                        
+                        const apiUrl = urlMatch[1];
+                        
+                        // Extract token from Authorization header
+                        const tokenMatch = cmd.match(/Bearer\s+([^"'\s]+)/);
+                        if (!tokenMatch) {
+                            throw new Error('Could not find access token in Authorization header');
+                        }
+                        
+                        const token = tokenMatch[1];
+                        
+                        // Check if token is a gcloud command
+                        if (token.includes('$(gcloud') || token.includes('`gcloud')) {
+                            throw new Error('Please replace "$(gcloud auth print-access-token)" with an actual token. Run: gcloud auth print-access-token');
+                        }
+                        
+                        // Update configuration
+                        this.config = {
+                            apiUrl,
+                            token
+                        };
+                        
+                        this.tokenExpiry = Date.now() + (60 * 60 * 1000);
+                        this.curlCommand = '';
+                        
+                        alert('✅ Configuration parsed successfully!');
+                        
+                    } catch (error) {
+                        this.parseError = error.message;
+                    }
+                },
+
                 showTokenHelp() {
                     alert('To refresh your token:\n\n1. Open Google Cloud Shell\n2. Run: gcloud auth print-access-token\n3. Copy the token\n4. Click "Edit" and paste the new token');
                 },
+
+
 
                 copyConfigUrl() {
                     const url = window.location.href;
@@ -310,17 +308,23 @@
 
                     this.loading = true;
                     this.error = '';
-                    this.results = { totalSize: null, items: [] };
+                    this.results = { totalSize: null, items: [], summary: null };
 
                     try {
-                        const url = `https://discoveryengine.googleapis.com/v1/projects/${this.config.projectId}/locations/${this.config.location}/collections/default_collection/dataStores/${this.config.dataStoreId}/servingConfigs/${this.config.servingConfig}:search`;
-
                         const requestBody = {
                             query: this.query,
-                            pageSize: 10
+                            pageSize: 10,
+                            queryExpansionSpec: { condition: "AUTO" },
+                            spellCorrectionSpec: { mode: "AUTO" },
+                            contentSearchSpec: {
+                                summarySpec: {
+                                    summaryResultCount: 3,
+                                    includeCitations: true
+                                }
+                            }
                         };
 
-                        const response = await fetch(url, {
+                        const response = await fetch(this.config.apiUrl, {
                             method: 'POST',
                             headers: { 
                                 'Content-Type': 'application/json',
@@ -364,6 +368,9 @@
                             link: derivedData.link || '#'
                         };
                     });
+
+                    // Process summary
+                    this.results.summary = data.summary?.summaryText || null;
                 }
             }
         }
