@@ -59,22 +59,16 @@
                             </div>
                         </div>
 
-                        <!-- Search Input -->
+                        <!-- Search Widget -->
                         <div class="box">
                             <div class="field">
                                 <label class="label">Search</label>
                                 <div class="control">
-                                    <input 
-                                        class="input is-large" 
-                                        placeholder="Search here" 
-                                        id="searchWidgetTrigger" 
-                                    />
+                                    <!-- Search widget element with built-in searchbox -->
+                                    <div x-html="widgetHtml"></div>
                                 </div>
                             </div>
                         </div>
-
-                        <!-- Search widget element -->
-                        <div x-html="widgetHtml"></div>
                     </div>
                 </div>
             </div>
@@ -92,7 +86,13 @@
 
                 get widgetHtml() {
                     if (!this.configId) return '';
-                    return `<gen-search-widget configId="${this.configId}" triggerId="searchWidgetTrigger"></gen-search-widget>`;
+                    return `<gen-search-widget 
+                        configId="${this.configId}" 
+                        layout="overlay"
+                        placeholder="Search for information..."
+                        triggerType="searchbox"
+                        alwaysOpened="true">
+                    </gen-search-widget>`;
                 },
 
                 init() {
