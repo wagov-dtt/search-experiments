@@ -74,10 +74,7 @@
                         </div>
 
                         <!-- Search widget element -->
-                        <gen-search-widget
-                          :configId="configId"
-                          triggerId="searchWidgetTrigger">
-                        </gen-search-widget>
+                        <div x-html="widgetHtml"></div>
                     </div>
                 </div>
             </div>
@@ -92,6 +89,11 @@
             return {
                 configId: '',
                 inputConfigId: '',
+
+                get widgetHtml() {
+                    if (!this.configId) return '';
+                    return `<gen-search-widget configId="${this.configId}" triggerId="searchWidgetTrigger"></gen-search-widget>`;
+                },
 
                 init() {
                     this.loadConfigFromUrl();
@@ -109,25 +111,12 @@
                         this.configId = this.inputConfigId.trim();
                         window.location.hash = encodeURIComponent(this.configId);
                         this.inputConfigId = '';
-                        
-                        // Reload the widget with new config
-                        this.$nextTick(() => {
-                            this.updateWidget();
-                        });
                     }
                 },
 
                 clearConfig() {
                     this.configId = '';
                     window.location.hash = '';
-                },
-
-                updateWidget() {
-                    // Remove existing widget and recreate it
-                    const existingWidget = document.querySelector('gen-search-widget');
-                    if (existingWidget) {
-                        existingWidget.setAttribute('configId', this.configId);
-                    }
                 }
             }
         }
