@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Cloud Search Interface</title>
+    <script src="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js" defer></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+</head>
+<body x-data="searchApp()">
+    <section class="section">
+        <div class="container">
+            <div class="columns is-centered">
+                <div class="column is-8">
+                    <h1 class="title has-text-centered has-text-primary">Google Cloud Search</h1>
+                    
+                    <!-- Configuration -->
+                    <div class="box" x-show="!configValid && showConfig">
+                        <h3 class="subtitle">Configuration</h3>
+                        <div class="field">
+                            <input 
+                                class="input" 
+                                type="text" 
+                                x-model="config.projectId"
+                                placeholder="Google Cloud Project ID"
+                            >
+                        </div>
+                        <div class="field">
+                            <input 
+                                class="input" 
+                                type="text" 
+                                x-model="config.dataStoreId"
+                                placeholder="Data Store ID"
+                            >
+                        </div>
+                        <div class="field">
+                            <input 
+                                class="input" 
+                                type="text" 
+                                x-model="config.token"
+                                placeholder="Access Token (from gcloud)"
+                            >
+                        </div>
+                        <div class="field">
+                            <p class="help">
+                                TIP: Use Google Cloud Shell to get your access token: <code>gcloud auth print-access-token</code>
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Configuration Summary -->
+                    <div class="notification is-success is-light" x-show="configValid">
+                        <div class="level">
+                            <div class="level-left">
+                                <div class="level-item">
+                                    <span class="tag is-success">Project: <span x-text="config.projectId"></span></span>
+                                    <span class="tag is-info ml-2">Data Store: <span x-text="config.dataStoreId"></span></span>
+                                    <span class="tag ml-2" :class="tokenExpired ? 'is-danger' : 'is-warning'">
+                                        Token: <span x-text="tokenStatus"></span>
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="level-right">
+                                <div class="level-item">
+                                    <button class="button is-small" @click="showConfig = true">Edit</button>
+                                    <button class="button is-small is-primary ml-2" @click="copyConfigUrl()">Share</button>
+                                    <button class="button is-small is-warning ml-2" x-show="tokenExpired" @click="showTokenHelp()">Refresh Token</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Setup Button (when no config) -->
+                    <div class="has-text-centered mb-5" x-show="!configValid && !showConfig">
+                        <button class="button is-primary is-large" @click="showConfig = true">
+                            Setup Configuration
+                        </button>
+                    </div>
+                    
+                    <!-- Search Form -->
+                    <form @submit.prevent="performSearch()">
+                        <div class="field has-addons">
+                            <div class="control is-expanded">
+                                <input 
+                                    class="input is-large" 
+                                    type="text" 
+                                    x-model="query"
+                                    placeholder="Enter your search query..." 
+                                    required
+                                >
+                            </div>
+                            <div class="control">
+                                <button 
+                                    class="button is-primary is-large"
+                                    :class="{ 'is-loading': loading }"
+                                    :disabled="!configValid || loading"
+                                    type="submit"
+                                >
+                                    Search
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+
+                    <!-- Error Display -->
+                    <div class="notification is-danger" x-show="error" x-transition>
+                        <span x-text="error"></span>
+                    </div>
+
+                    <!-- Results Stats -->
+                    <div class="content has-text-grey" x-show="results.totalSize !== null">
+                        About <strong x-text="results.totalSize"></strong> results
+                    </div>
+
+                    <!-- Search Results -->
+                    <div class="mt-5">
+                        <template x-for="result in results.items" :key="result.id">
+                            <div class="box">
+                                <h4 class="title is-5">
+                                    <a :href="result.link" target="_blank" class="has-text-link" x-text="result.title"></a>
+                                </h4>
+                                <p class="content" x-text="result.snippet"></p>
+                                <p class="has-text-success is-size-7" x-text="result.link"></p>
+                            </div>
+                        </template>
+                    </div>
+
+                    <!-- No Results -->
+                    <div class="has-text-centered mt-6" x-show="results.items && results.items.length === 0">
+                        <p class="has-text-grey">No results found. Try a different search query.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <script>
+        function searchApp() {
+            return {
+                config: {
+                    projectId: '',
+                    dataStoreId: '',
+                    location: 'global',
+                    servingConfig: 'default_config',
+                    token: ''
+                },
+                tokenExpiry: null,
+                query: '',
+                loading: false,
+                error: '',
+                results: {
+                    totalSize: null,
+                    items: []
+                },
+                showConfig: false,
+
+                get configValid() {
+                    return this.config.projectId.trim() && this.config.dataStoreId.trim() && this.config.token.trim();
+                },
+
+                get tokenExpired() {
+                    if (!this.tokenExpiry) return false;
+                    return Date.now() > this.tokenExpiry;
+                },
+
+                get tokenStatus() {
+                    if (!this.tokenExpiry) return 'Unknown';
+                    const remaining = Math.max(0, this.tokenExpiry - Date.now());
+                    const minutes = Math.floor(remaining / 60000);
+                    if (remaining <= 0) return 'Expired';
+                    if (minutes < 5) return `${minutes}m left`;
+                    return `${Math.floor(minutes/60)}h ${minutes%60}m`;
+                },
+
+                init() {
+                    // Load config from URL hash first, then localStorage
+                    this.loadConfigFromUrl();
+                    
+                    // Watch config changes and update both localStorage and URL
+                    this.$watch('config', (newConfig) => {
+                        localStorage.setItem('projectId', newConfig.projectId);
+                        localStorage.setItem('dataStoreId', newConfig.dataStoreId);
+                        localStorage.setItem('location', newConfig.location);
+                        localStorage.setItem('servingConfig', newConfig.servingConfig);
+                        localStorage.setItem('token', newConfig.token);
+                        this.updateUrlHash();
+                    }, { deep: true });
+
+                    // Update token status every minute
+                    setInterval(() => {
+                        this.$nextTick(); // Trigger reactivity update
+                    }, 60000);
+
+                    // Show config form if no valid config found
+                    if (!this.configValid) {
+                        this.showConfig = true;
+                    }
+                },
+
+                loadConfigFromUrl() {
+                    // Try URL hash first
+                    const hash = window.location.hash.substring(1);
+                    if (hash) {
+                        try {
+                            // Try JSON format first (new format)
+                            const decoded = decodeURIComponent(hash);
+                            const jsonConfig = JSON.parse(decoded);
+                            if (jsonConfig.projectId && jsonConfig.dataStoreId && jsonConfig.token) {
+                                this.config = {
+                                    projectId: jsonConfig.projectId,
+                                    dataStoreId: jsonConfig.dataStoreId,
+                                    location: jsonConfig.location || 'global',
+                                    servingConfig: jsonConfig.servingConfig || 'default_config',
+                                    token: jsonConfig.token
+                                };
+                                // Set token expiry to 1 hour from now
+                                this.tokenExpiry = Date.now() + (60 * 60 * 1000);
+                                return;
+                            }
+                        } catch (e) {
+                            // Fall back to URLSearchParams format (legacy)
+                            try {
+                                const params = new URLSearchParams(hash);
+                                const urlConfig = {
+                                    projectId: params.get('project') || '',
+                                    dataStoreId: params.get('datastore') || params.get('app') || '',
+                                    location: params.get('location') || 'global',
+                                    servingConfig: params.get('servingConfig') || 'default_config',
+                                    token: params.get('token') || ''
+                                };
+                                
+                                // Parse token expiry if present
+                                const expiry = params.get('expiry');
+                                if (expiry) {
+                                    this.tokenExpiry = parseInt(expiry);
+                                } else if (urlConfig.token) {
+                                    this.tokenExpiry = Date.now() + (60 * 60 * 1000);
+                                }
+                                
+                                // Use URL config if all fields present
+                                if (urlConfig.projectId && urlConfig.dataStoreId && urlConfig.token) {
+                                    this.config = urlConfig;
+                                    return;
+                                }
+                            } catch (e2) {
+                                console.warn('Failed to parse URL config:', e2);
+                            }
+                        }
+                    }
+
+                    // Fallback to localStorage
+                    this.config = {
+                        projectId: localStorage.getItem('projectId') || '',
+                        dataStoreId: localStorage.getItem('dataStoreId') || localStorage.getItem('appId') || '',
+                        location: localStorage.getItem('location') || 'global',
+                        servingConfig: localStorage.getItem('servingConfig') || 'default_config',
+                        token: localStorage.getItem('token') || ''
+                    };
+                    
+                    // Load token expiry from localStorage if available
+                    const storedExpiry = localStorage.getItem('tokenExpiry');
+                    if (storedExpiry) {
+                        this.tokenExpiry = parseInt(storedExpiry);
+                    }
+                },
+
+                updateUrlHash() {
+                    if (this.configValid) {
+                        // Use JSON format for cleaner URLs
+                        const configData = {
+                            projectId: this.config.projectId,
+                            dataStoreId: this.config.dataStoreId,
+                            location: this.config.location,
+                            servingConfig: this.config.servingConfig,
+                            token: this.config.token
+                        };
+                        const encoded = encodeURIComponent(JSON.stringify(configData));
+                        window.location.hash = encoded;
+                        
+                        // Save expiry to localStorage too
+                        if (this.tokenExpiry) {
+                            localStorage.setItem('tokenExpiry', this.tokenExpiry.toString());
+                        }
+                    }
+                },
+
+                showTokenHelp() {
+                    alert('To refresh your token:\n\n1. Open Google Cloud Shell\n2. Run: gcloud auth print-access-token\n3. Copy the token\n4. Click "Edit" and paste the new token');
+                },
+
+                copyConfigUrl() {
+                    const url = window.location.href;
+                    navigator.clipboard.writeText(url).then(() => {
+                        // Show temporary feedback
+                        const originalText = event.target.textContent;
+                        event.target.textContent = 'Copied!';
+                        setTimeout(() => {
+                            event.target.textContent = originalText;
+                        }, 2000);
+                    }).catch(err => {
+                        console.error('Failed to copy URL:', err);
+                    });
+                },
+
+                async performSearch() {
+                    if (!this.configValid || !this.query.trim()) {
+                        this.error = 'Please enter all configuration fields and a search query.';
+                        return;
+                    }
+
+                    this.loading = true;
+                    this.error = '';
+                    this.results = { totalSize: null, items: [] };
+
+                    try {
+                        const url = `https://discoveryengine.googleapis.com/v1/projects/${this.config.projectId}/locations/${this.config.location}/collections/default_collection/dataStores/${this.config.dataStoreId}/servingConfigs/${this.config.servingConfig}:search`;
+
+                        const requestBody = {
+                            query: this.query,
+                            pageSize: 10
+                        };
+
+                        const response = await fetch(url, {
+                            method: 'POST',
+                            headers: { 
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${this.config.token}`
+                            },
+                            body: JSON.stringify(requestBody),
+                        });
+
+                        if (!response.ok) {
+                            const errorText = await response.text();
+                            if (response.status === 401) {
+                                this.error = 'Token expired. Click "Refresh Token" or re-run setup script.';
+                                return;
+                            }
+                            throw new Error(`HTTP ${response.status}: ${errorText}`);
+                        }
+
+                        const data = await response.json();
+                        this.processResults(data);
+
+                    } catch (error) {
+                        console.error('Search error:', error);
+                        this.error = `Search failed: ${error.message}`;
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                processResults(data) {
+                    this.results.totalSize = data.totalSize || 0;
+
+                    // Process search results
+                    this.results.items = (data.results || []).map(result => {
+                        const doc = result.document;
+                        const derivedData = doc.derivedStructData || {};
+                        
+                        return {
+                            id: doc.id,
+                            title: derivedData.title || derivedData.htmlTitle || 'Untitled',
+                            snippet: derivedData.snippet || derivedData.extractive_answers?.[0]?.content || '',
+                            link: derivedData.link || '#'
+                        };
+                    });
+                }
+            }
+        }
+    </script>
+</body>
+</html>
